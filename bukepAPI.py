@@ -97,11 +97,3 @@ class Bukep_API:
 			lessonday_list.append(LessonDay(date_1, lessons))
 		return lessonday_list
 
-
-
-# test = Bukep_API("223024", "v461au")
-# sched = test.get_first_schedule()
-# raw = test.get_lessons_html_for_dateid(sched, 2)
-# data = test.parse_lessons(raw)
-# for day in data:
-# 	print(day.date, day.lessons)
