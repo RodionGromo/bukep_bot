@@ -187,6 +187,7 @@ def update_cookies():
 					print(f"[MAIN] Update on user {user} failed: {e}")
 			lastTime = TimeSecondsSpan.getCurrentSeconds()
 
+
 thr = threading.Thread(target=update_cookies)
 thr.start()
 running = True
