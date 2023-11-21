@@ -1,7 +1,9 @@
+from urllib3.exceptions import MaxRetryError
+
 from bukepAPI import Bukep_API
 from telegramAPI import TelegramPyAPI
 from timeSecond import TimeSecondsSpan
-import json, time, threading, sys
+import json, threading
 
 key = "***"
 tgapi = TelegramPyAPI(key)
@@ -86,6 +88,7 @@ def save_user():
 	file.write(json.dumps(endData))
 	file.close()
 
+
 base_menu = to_inlinekb([["Расписания"],["Сколько до звонка?"]])
 lesson_getter_menu = to_inlinekb([["На сегодняшний день", "На завтрашний день"], ["На текущую неделю", "На следующую неделю"], ["На главную"]])
 
@@ -163,7 +166,13 @@ def parse_message(message):
 			data = users[_userid].parse_lessons(lessons)
 			if not data:
 				tgapi.sendMessageOnChannel(_channel, "Ошибка в работе сайта, попробуйте позже...")
-			tgapi.sendMessageOnChannel(_channel, convert_to_message(data), useMarkdown=True)
+			msg = convert_to_message(data)
+			if "Bad Request" in msg:
+				print("[Main] Ошибка парсинга, html пустой")
+				print("Ошибка у пользователя", users[_userid])
+				tgapi.sendMessageOnChannel(_channel, "Ошибка в работе бота, пожалуйста попросите перезагрузки у автора")
+			else:
+				tgapi.sendMessageOnChannel(_channel, msg, useMarkdown=True)
 
 def update_cookies():
 	global running
@@ -176,6 +185,7 @@ def update_cookies():
 					api.logIn()
 				except Exception as e:
 					print(f"[MAIN] Update on user {user} failed: {e}")
+			lastTime = TimeSecondsSpan.getCurrentSeconds()
 
 thr = threading.Thread(target=update_cookies)
 thr.start()

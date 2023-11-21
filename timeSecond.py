@@ -1,5 +1,6 @@
 import datetime
 
+
 class TimeSeconds:
 	def __init__(self, seconds):
 		self.seconds = seconds
@@ -11,12 +12,12 @@ class TimeSeconds:
 		return f"[TimeSeconds: {self.seconds}]"
 
 	@staticmethod
-	def FromDatetime(dt):
+	def FromDatetime(dt: datetime.datetime):
 		seconds = dt.hour * 3600 + dt.minute * 60 + dt.second
 		return TimeSeconds(seconds)
 
 	@staticmethod
-	def FromTimeString(ts):
+	def FromTimeString(ts: str):
 		time = datetime.datetime.strptime(ts, "%H:%M.%S")
 		seconds = time.hour * 3600 + time.minute * 60 + time.second
 		return TimeSeconds(seconds)
@@ -38,6 +39,7 @@ class TimeSeconds:
 
 	def __le__(self, x):
 		return self.seconds <= x.seconds
+
 
 class TimeSecondsSpan:
 	def __init__(self, s1, s2):
@@ -64,7 +66,8 @@ class TimeSecondsSpan:
 		seconds2 = dt2.hour * 3600 + dt2.minute * 60 + dt2.second
 		return TimeSecondsSpan(seconds, seconds2)
 
-	def FromTimeString(ts1, ts2):
+	@staticmethod
+	def FromTimeString(ts1: str, ts2: str):
 		time = datetime.datetime.strptime(ts1, "%H:%M.%S")
 		seconds = time.hour * 3600 + time.minute * 60 + time.second
 		time2 = datetime.datetime.strptime(ts2, "%H:%M.%S")

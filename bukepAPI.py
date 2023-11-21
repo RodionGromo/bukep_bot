@@ -2,6 +2,7 @@ import requests, datetime
 from urllib3.exceptions import InsecureRequestWarning
 requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
+
 class Lesson:
 	def __init__(self, lesson_name, lesson_type, lesson_teacher, room):
 		self.name = lesson_name
@@ -12,32 +13,38 @@ class Lesson:
 	def __repr__(self):
 		return f"[Пара {self.name} в кабинете {self.room}, {self.lesson_type}, преподаватель {self.lesson_teacher}]"
 
+
 class LessonDay:
 	def __init__(self, date, lessons):
 		self.lessons = lessons
 		self.date = date
 
+
 class Bukep_API:
 	def __init__(self, login, password):
-		'''
+		"""
 		Абсолютно угашеный апи который парсит данные из html
-		'''
+		"""
+		self.cookie = None
 		self.login = login
 		self.password = password
 		self.lpdata = {"login": self.login, "password": self.password}
 		self.logIn()
 
+	def __repr__(self):
+		return f"[Пользователь {self.login}, куки: {self.cookie}]"
+
 	def logIn(self):
-		'''
+		"""
 		Логинимся испольуя логин/пароль что дал нам пользователь, обычно не вызывается снаружи
-		'''
+		"""
 		rq = requests.post("https://my.bukep.ru/Login/Login", data=self.lpdata, verify=False, allow_redirects=False)
 		self.cookie = rq.cookies.get_dict()
 
 	def get_first_schedule(self):
-		'''
+		"""
 		Достаем ID первого расписания (если будет больше одного то с этим надо будет поработать)
-		'''
+		"""
 		rq = requests.post("https://my.bukep.ru/Schedule/Schedule", cookies=self.cookie, verify=False)
 		if "Неверное" in rq.text:
 			return None
@@ -47,7 +54,7 @@ class Bukep_API:
 		return data
 
 	def get_lessons_html_for_dateid(self, schedule_id, date_id):
-		'''
+		"""
 		Возвращает HTML сайта расписания пар по данному ID даты
 
 		БУКЭП веселый ВУЗ, у них есть что-то типо API, но он возвращает цельные сайты
@@ -59,11 +66,12 @@ class Bukep_API:
 		4 - полное расписание на неделю
 
 		Но так как они возвращают целые html сайты, эти данные еще раскопать надо...
-		'''
+		"""
 		rq = requests.post("https://my.bukep.ru/Schedule/Schedule/" + schedule_id, cookies=self.cookie, data={"ddlConfig": int(date_id)}, verify=False)
 		return rq.text
 
-	def parse_lessons(self, raw_data):
+	@staticmethod
+	def parse_lessons(raw_data):
 		raw_data = raw_data.strip()
 		lessons_start = raw_data.find('<div class="row-rasp raspDayDiv">')
 		raw_data = raw_data[lessons_start+33:].split('<div class="row-rasp raspDayDiv">')
@@ -87,7 +95,7 @@ class Bukep_API:
 			for lesson in data.split('<div style="color:black;">'):
 				lesson_end = lesson.find("</td>")
 				lesson_data = lesson[:lesson_end].replace("\n                ", "")
-				if("raspDayTable" in lesson_data):
+				if "raspDayTable" in lesson_data:
 					continue
 				lesson_name = lesson_data[:lesson_data.find("</div>")]
 				lesson_type = lesson_data[lesson_data.find("</div><div>")+11:lesson_data.find(" <span")]
