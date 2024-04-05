@@ -255,7 +255,6 @@ def parse_message(message):
 			tgapi.sendMessageOnChannel(_channel, convert_to_message(data), useMarkdown=True)
 
 def update_cookies():
-	global runnin
 	print("[MAIN] Cookie updates: every 5 minutes, no checking")
 	while running:
 		for user, api in users.items():
