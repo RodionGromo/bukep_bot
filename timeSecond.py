@@ -1,5 +1,8 @@
 import datetime
 
+def formTime(time: datetime.datetime) -> str:
+	return time.strftime("%d.%m.%Y")
+
 class TimeSeconds:
 	def __init__(self, seconds):
 		self.seconds = seconds

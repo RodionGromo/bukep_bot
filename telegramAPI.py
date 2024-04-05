@@ -146,7 +146,7 @@ class TelegramPyAPI():
 
 	@staticmethod
 	def text_sanitization(text):
-		clean = text.replace(".", "\\.").replace(":", "\\.").replace("-", "\\-").replace("=","\\=").replace(">","\\>").replace("<","\\<")
+		clean = text.replace(".", "\\.").replace(":", "\\:").replace("-", "\\-").replace("=","\\=").replace(">","\\>").replace("<","\\<").replace("!","\\!")
 		return clean
 
 	def sendMessageOnChannel(self,channel,string, useMarkdown=False, silent=False):

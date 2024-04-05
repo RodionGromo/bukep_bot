@@ -17,6 +17,16 @@ class LessonDay:
 		self.lessons = lessons
 		self.date = date
 
+class Mail:
+	def __init__(self, sender, theme, date, mid):
+		self.sender = sender
+		self.theme = theme
+		self.date = datetime.datetime.strptime(date, "%d.%m.%y")
+		self.mailID = mid
+
+	def __repr__(self):
+		return f"[Mail from {self.sender}, theme: {self.theme}, sent date: {self.date}]"
+
 class Bukep_API:
 	def __init__(self, login, password):
 		'''
@@ -97,3 +107,45 @@ class Bukep_API:
 			lessonday_list.append(LessonDay(date_1, lessons))
 		return lessonday_list
 
+
+	def parse_email(self, page=1):
+		raw_data = requests.get("https://my.bukep.ru/MailBukep/Incoming?PageNumber="+str(page), cookies=self.cookie, verify=False, allow_redirects=False).text
+		mail_table_start = raw_data.find('<table class="table table-bordered table-hover table-striped small">')
+		mail_table_end = raw_data[mail_table_start:].rfind('</table>')
+		rd_1 = raw_data[mail_table_start:mail_table_end+mail_table_start]
+		r_mails = rd_1.split('<td class="col-lg-1 col-md-2 col-sm-1 col-xs-3 " align="center" valign="middle">')
+		mails = []
+		for m in r_mails:
+			# id
+			mail_id = m[m.find("Incoming/")+9:m.find("?PageNumber=1&")]
+			if not mail_id.isnumeric():
+				continue
+			m = m[m.find("?PageNumber=1&"):]
+			# sender
+			snd_i1 = m.find('<span style="font-size: small">')
+			snd_i2 = m[snd_i1:].find("</span>")
+			sender = m[snd_i1+31:snd_i2+snd_i1]
+			if sender == "":
+				continue
+			m = m[snd_i2+snd_i1:]
+			# theme
+			th_i1 = m.find('<div style="font-size: small; font-size: 9px">')
+			th_i2 = m[th_i1+46:].find("</div>")
+			theme = m[th_i1+46:th_i2+th_i1+46].replace("\n","").strip()
+			if theme == "":
+				continue
+			m = m[th_i2+th_i1+46:]
+			# date
+			dt_i1 = m.find('<span style="font-size: small">')
+			dt_i2 = m.find("</span>")
+			date = m[dt_i1+31:dt_i2]
+			mails.append(Mail(sender, theme, date, mail_id))
+		return mails
+
+	def get_mail_content_by_id(self, mailid):
+		link = "https://my.bukep.ru/MailBukep/Incoming/" + str(mailid) + "?PageNumber=1&isDetail=False"
+		html = requests.get(link, cookies=self.cookie, verify=False, allow_redirects=False).text
+		cnt_id1 = html.rfind('<span style="border: none; white-space: pre-wrap;">')+51
+		cnt_id2 = html[cnt_id1:].find('</span>')
+		raw_content = html[cnt_id1:cnt_id2+cnt_id1].replace("\r", "")
+		return raw_content

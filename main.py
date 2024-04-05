@@ -1,12 +1,15 @@
 from bukepAPI import Bukep_API
 from telegramAPI import TelegramPyAPI
-from timeSecond import TimeSecondsSpan
-import json, time, threading, sys
+from timeSecond import TimeSecondsSpan, formTime
+import json, time, threading, sys, datetime
 
-key = "***"
+key = open("key.txt", "r").read()
 tgapi = TelegramPyAPI(key)
 
 users = {}
+user_mail = {}
+
+alert_list = {}
 
 lesson_timing = {
 	"1.1": TimeSecondsSpan.FromTimeString("08:30.0", "09:15.0"),
@@ -67,6 +70,7 @@ def getCurrentLessonTiming():
 def to_inlinekb(kb):
 	return json.dumps({"keyboard": kb})
 
+print("[MAIN] Загрузка пользователей")
 # load users
 try:
 	file = json.loads(open("user_data.json", "r").read())
@@ -78,6 +82,18 @@ except MaxRetryError:
 except Exception as e:
 	print(f"[MAIN] Error while loading users: {e}")
 
+print("[MAIN] Загрузка оповещаемых пользователей")
+# load alerts
+file = json.loads(open("alert_list.json", "r").read())
+for user, uid in file.items():
+	alert_list[user] = uid
+	print(f"[MAIN] Пользователь {user} восстановлен в список оповещения")
+
+def save_alerts():
+	file = open("alert_list.json", "w")
+	file.write(json.dumps(alert_list))
+	file.close()
+
 def save_user():
 	file = open("user_data.json", "w")
 	endData = {}
@@ -86,8 +102,14 @@ def save_user():
 	file.write(json.dumps(endData))
 	file.close()
 
-base_menu = to_inlinekb([["Расписания"],["Сколько до звонка?"]])
+def compareEmails(newEmails, userid):
+	new_ids = [i.mailID for i in newEmails]
+	old_ids = [i.mailID for i in user_mail[userid]]
+	return new_ids != old_ids
+
+base_menu = to_inlinekb([["Расписания", "Почта"],["Сколько до звонка?", "Переключить оповещение о звонке"]])
 lesson_getter_menu = to_inlinekb([["На сегодняшний день", "На завтрашний день"], ["На текущую неделю", "На следующую неделю"], ["На главную"]])
+email_menu = to_inlinekb([["Обновить почту", "Показать ящик"],["Показать содержимое письма"], ["На главную"]])
 
 def convert_to_message(list_lessonDay):
 	last_date = ""
@@ -139,7 +161,6 @@ def parse_message(message):
 	if "до звонка" in _content:
 		timeName = getCurrentLessonTiming()
 		untilEndText = lesson_timing[timeName].untilEnd(TimeSecondsSpan.getCurrentSeconds()).toDatetime()
-		print(untilEndText)
 		magicString = translateTiming(timeName) + "\nОсталось " + untilEndText.strftime("%H ч. %M мин. %S сек.")
 		tgapi.sendMessageOnChannel(_channel, magicString)
 		return
@@ -147,48 +168,132 @@ def parse_message(message):
 	if _userid not in users: return
 
 	if "на главную" in _content:
-		tgapi.sendKeyboard(_channel, "Прошу!", base_menu)
+		tgapi.sendKeyboard(_channel, "Домой!", base_menu)
 		return
 
 	if "расписания" in _content:
 		# send kb
-		tgapi.sendKeyboard(_channel, "Прошу!", lesson_getter_menu)
+		tgapi.sendKeyboard(_channel, "Что смотрим?", lesson_getter_menu)
 		return
+
+	if "почта" in _content:
+		tgapi.sendKeyboard(_channel, "Смотрим почту?", email_menu)
+
+	if "переключить" in _content:
+		# add to alert list, if already added remove
+		username = message.user[0]
+		if username in alert_list:
+			del alert_list[username]
+			tgapi.sendMessageOnChannel(_channel, "Удалил из списка оповещений!")
+		else:
+			alert_list[username] = _channel
+			tgapi.sendMessageOnChannel(_channel, "Добавил в список оповещения!")
+		save_alerts()
+
+	if "обновить" in _content:
+		tgapi.sendMessageOnChannel(_channel, "Обновляю ящик...")
+		newEmails = users[_userid].parse_email()
+		alerts = False
+		if _userid in user_mail:
+			if user_mail[_userid] != newEmails:
+				alerts = compareEmails(newEmails, _userid)
+		user_mail[_userid] = newEmails
+		tgapi.sendMessageOnChannel(_channel, "Обновление успешно!" + (" У вас новые сообщения!" if alerts else "") + "\nВыберите \"Показать ящик\" чтоб увидеть сообщения в почте")
+
+	if "ящик" in _content:
+		if (_userid not in user_mail) or (not len(user_mail[_userid])):
+			tgapi.sendMessageOnChannel(_channel, "У вас нет сообщений или вы еще не обновили их! Выберите \"Обновить почту\" и возвращайтесь!")
+			return
+		magicString = ""
+		for mail in user_mail[_userid]:
+			magicString += "Письмо от: `" + mail.sender + "`,\nТема: `" + mail.theme + "`\n"
+			magicString += "Дата: `" + formTime(mail.date) + "`\n\n"
+		magicString += "Чтоб прочитать содержимое, выберите \"Показать содержимое письма\"!"
+		tgapi.sendMessageOnChannel(_channel, magicString, useMarkdown=True)
+
+	if "содержимое" in _content:
+		if (_userid not in user_mail) or (not len(user_mail[_userid])):
+			tgapi.sendMessageOnChannel(_channel, "У вас нет сообщений или вы еще не обновили их! Выберите \"Обновить почту\" и возвращайтесь!")
+			return
+		args = _content.split(" ")
+		if len(args) != 4:
+			# no mail id supplied, ask for it
+			tgapi.sendMessageOnChannel(_channel, "Укажите номер письма, которое хотите прочитать!")
+			magicString = ""
+			for i in range(len(user_mail[_userid])):
+				magicString += f"{i+1}. `{user_mail[_userid][i].theme}` от `{user_mail[_userid][i].sender}`\n\n"
+			magicString += "Добавьте к этой команде номер письма, и я достану его содержимое\nПример: Показать содержимое письма 3"
+			tgapi.sendMessageOnChannel(_channel, magicString, useMarkdown=True) 
+		else:
+			if not args[3].isnumeric():
+				tgapi.sendMessageOnChannel(_channel, "Неверно указан номер письма!")
+				return
+			mail_index = int(args[3])
+			if (mail_index > len(user_mail[_userid])) or (mail_index < 1): 
+				tgapi.sendMessageOnChannel(_channel, "Такого письма нет!")
+				return
+			mail_index -= 1
+			# mail id supplied, get message content
+			tgapi.sendMessageOnChannel(_channel, "Достаю содержимое письма...")
+			mail = user_mail[_userid][mail_index]
+			content = users[_userid].get_mail_content_by_id(mail.mailID)
+			magicString = f"Письмо от `{mail.sender}`, дата: {formTime(mail.date)}, тема: `{mail.theme}\n\"{content}\"`"
+			tgapi.sendMessageOnChannel(_channel, magicString, useMarkdown=True)
 
 	stupidCommands = ["сегодняшний день", "завтрашний день", "текущую неделю", "следующую неделю"]
 	for i in range(len(stupidCommands)):
 		if stupidCommands[i] in _content:
+			if i == 0 and datetime.datetime.now().weekday() == 6:
+				tgapi.sendMessageOnChannel(_channel, "Сегодня воскресенье, пар нет!")
+				break
 			schedule_id = users[_userid].get_first_schedule()
 			lessons = users[_userid].get_lessons_html_for_dateid(schedule_id, i)
+			open("site.html","w").write(lessons).close()
 			data = users[_userid].parse_lessons(lessons)
 			if not data:
 				tgapi.sendMessageOnChannel(_channel, "Ошибка в работе сайта, попробуйте позже...")
 			tgapi.sendMessageOnChannel(_channel, convert_to_message(data), useMarkdown=True)
 
 def update_cookies():
-	global running
-	lastTime = TimeSecondsSpan.getCurrentSeconds()
+	global runnin
 	print("[MAIN] Cookie updates: every 5 minutes, no checking")
 	while running:
-		if abs(lastTime - TimeSecondsSpan.getCurrentSeconds()) > 600:
-			for user, api in users.items():
-				try:
-					api.logIn()
-				except Exception as e:
-					print(f"[MAIN] Update on user {user} failed: {e}")
+		for user, api in users.items():
+			try:
+				api.logIn()
+			except Exception as e:
+				print(f"[MAIN] Update on user {user} failed: {e}")
+		time.sleep(600)
 
+def alert_users_thread():
+	last_alert = ""
+	print("[MAIN] Оповещение о звонках: проверка каждые 5 секунд")
+	while running:
+		timeName = getCurrentLessonTiming()
+		if not timeName:
+			continue
+		if timeName != last_alert:
+			for user, chatid in alert_list.items():
+				tgapi.sendMessageOnChannel(chatid, f"Звонок! Сейчас {translateTiming(timeName).lower()}")		
+		last_alert = timeName
+		time.sleep(5)
+
+running = True
+
+thr_alert = threading.Thread(target=alert_users_thread)
+thr_alert.start()
 thr = threading.Thread(target=update_cookies)
 thr.start()
-running = True
 
 if __name__ == "__main__":
 	while running:
 		try:
 			msg = tgapi.getSMparsed()
 			if msg is None: continue
-			parse_message(msg)
+			newThread = threading.Thread(target=parse_message, args=(msg,))
+			newThread.start()
 		except KeyboardInterrupt:
 			print("[MAIN] Stopping bot...")
 			running = False
 		except Exception as e:
-			print(e)
+			print("Error:", e)
