@@ -41,7 +41,7 @@ class Bukep_API:
 		'''
 		Логинимся испольуя логин/пароль что дал нам пользователь, обычно не вызывается снаружи
 		'''
-		rq = requests.post("https://my.bukep.ru/Login/Login", data=self.lpdata, verify=False, allow_redirects=False)
+		rq = requests.post("https://my.bukep.ru/Login/Login", data=self.lpdata, verify=False, allow_redirects=False, timeout=5)
 		self.cookie = rq.cookies.get_dict()
 
 	def get_first_schedule(self):

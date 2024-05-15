@@ -2,6 +2,7 @@ from bukepAPI import Bukep_API
 from telegramAPI import TelegramPyAPI
 from timeSecond import TimeSecondsSpan, formTime
 import json, time, threading, sys, datetime
+from urllib3.exceptions import MaxRetryError
 
 key = open("key.txt", "r").read()
 tgapi = TelegramPyAPI(key)
@@ -248,7 +249,6 @@ def parse_message(message):
 				break
 			schedule_id = users[_userid].get_first_schedule()
 			lessons = users[_userid].get_lessons_html_for_dateid(schedule_id, i)
-			open("site.html","w").write(lessons).close()
 			data = users[_userid].parse_lessons(lessons)
 			if not data:
 				tgapi.sendMessageOnChannel(_channel, "Ошибка в работе сайта, попробуйте позже...")
@@ -256,26 +256,32 @@ def parse_message(message):
 
 def update_cookies():
 	print("[MAIN] Cookie updates: every 5 minutes, no checking")
+	lastUpdate = TimeSecondsSpan.getCurrentSeconds();
 	while running:
-		for user, api in users.items():
-			try:
-				api.logIn()
-			except Exception as e:
-				print(f"[MAIN] Update on user {user} failed: {e}")
-		time.sleep(600)
+		if TimeSecondsSpan.getCurrentSeconds() - lastUpdate > 600:
+			for user, api in users.items():
+				try:
+					api.logIn()
+				except Exception as e:
+					print(f"[MAIN] Update on user {user} failed: {e}")
+			lastUpdate = TimeSecondsSpan.getCurrentSeconds();
+		time.sleep(1)
 
 def alert_users_thread():
 	last_alert = ""
+	lastUpdate = TimeSecondsSpan.getCurrentSeconds();
 	print("[MAIN] Оповещение о звонках: проверка каждые 5 секунд")
 	while running:
-		timeName = getCurrentLessonTiming()
-		if not timeName:
-			continue
-		if timeName != last_alert:
-			for user, chatid in alert_list.items():
-				tgapi.sendMessageOnChannel(chatid, f"Звонок! Сейчас {translateTiming(timeName).lower()}")		
-		last_alert = timeName
-		time.sleep(5)
+		if TimeSecondsSpan.getCurrentSeconds() - lastUpdate > 5:
+			timeName = getCurrentLessonTiming()
+			if not timeName:
+				continue
+			if timeName != last_alert:
+				for user, chatid in alert_list.items():
+					tgapi.sendMessageOnChannel(chatid, f"Звонок! Сейчас {translateTiming(timeName).lower()}")		
+			last_alert = timeName
+			lastUpdate = TimeSecondsSpan.getCurrentSeconds();
+		time.sleep(1)
 
 running = True
 

@@ -42,6 +42,12 @@ class TimeSeconds:
 	def __le__(self, x):
 		return self.seconds <= x.seconds
 
+	def __add__(self, x):
+		return self.seconds + x.seconds
+
+	def __sub__(self, x):
+		return self.seconds - x.seconds
+
 class TimeSecondsSpan:
 	def __init__(self, s1, s2):
 		self.start = TimeSeconds(s1)
