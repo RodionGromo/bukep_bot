@@ -146,17 +146,39 @@ class TelegramPyAPI():
 
 	@staticmethod
 	def text_sanitization(text):
-		clean = text.replace(".", "\\.").replace(":", "\\:").replace("-", "\\-").replace("=","\\=").replace(">","\\>").replace("<","\\<").replace("!","\\!")
+		charsToEscape = list(".:-=><!")
+		clean = text
+		for char in charsToEscape:
+			clean = clean.replace(char, "\\"+char)
 		return clean
 
-	def sendMessageOnChannel(self,channel,string, useMarkdown=False, silent=False):
+	def sendMessageOnChannel(self,channel,string, useMarkdown=False, silent=False, returnMessageID=False):
 		if(useMarkdown):
 			res = self.pollCommandAdvanced("sendMessage", args={"chat_id":channel,"text":self.text_sanitization(string),"parse_mode":"MarkdownV2","disable_notification":silent})
 		else:
 			res = self.pollCommandAdvanced("sendMessage", args={"chat_id":channel,"text":string,"disable_notification":silent})
+
 		if(not res["ok"]):
 			print(res)
-		return res["ok"]
+
+		if returnMessageID:
+			return res["result"]["message_id"]
+		else:
+			return res["ok"]
+
+	def editMessage(self, channel, message_id, string, useMarkdown=False):
+		cntnt = {"chat_id": channel, "message_id": message_id, "text": string}
+		if useMarkdown:
+			cntnt["parse_mode"] = "MarkdownV2"
+			cntnt["text"] = self.text_sanitization(string)
+			res = self.pollCommandAdvanced("editMessageText", args=cntnt)
+		else:
+			res = self.pollCommandAdvanced("editMessageText", args=cntnt)
+
+		if not res["ok"]:
+			print("[TelegramPyAPI] Error on edit:", res)
+
+		return res['ok']
 
 	def sendKeyboard(self, channel, string, kb, silent=False):
 		res = self.pollCommandAdvanced("sendMessage", args={"chat_id":channel,"text":string,"reply_markup":kb, "disable_notification": silent})

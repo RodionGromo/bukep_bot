@@ -41,7 +41,11 @@ class Bukep_API:
 		'''
 		Логинимся испольуя логин/пароль что дал нам пользователь, обычно не вызывается снаружи
 		'''
-		rq = requests.post("https://my.bukep.ru/Login/Login", data=self.lpdata, verify=False, allow_redirects=False, timeout=5)
+		rq = requests.post("https://my.bukep.ru/Login/Login", data=self.lpdata, verify=False, allow_redirects=False, timeout=10)
+		if(rq.status_code != 302):
+			print("[bukepAPI] ERROR login for", self.login, "status:", rq.status_code)
+		# else:
+		# 	print("[bukepAPI] Login for", self.login, "status:",rq.status_code)
 		self.cookie = rq.cookies.get_dict()
 
 	def get_first_schedule(self):
@@ -60,15 +64,13 @@ class Bukep_API:
 		'''
 		Возвращает HTML сайта расписания пар по данному ID даты
 
-		БУКЭП веселый ВУЗ, у них есть что-то типо API, но он возвращает цельные сайты
-		и каждое расписание подписывается своим ид, и есть еще ид для определенных дат, вот они
+		БУКЭП имеет API в разработке, так что ждем его, а пока парсим все с HTML
+		А ну да, чтоб получить расписание нужно подать одну из этих цифер
 		0 - расписание на сегодня
 		1 - на завтра
 		2 - на текущуюю неделю
 		3 - на следующую неделю
 		4 - полное расписание на неделю
-
-		Но так как они возвращают целые html сайты, эти данные еще раскопать надо...
 		'''
 		rq = requests.post("https://my.bukep.ru/Schedule/Schedule/" + schedule_id, cookies=self.cookie, data={"ddlConfig": int(date_id)}, verify=False)
 		return rq.text

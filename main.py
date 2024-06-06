@@ -51,6 +51,12 @@ lesson_timing = {
 	"s": TimeSecondsSpan.FromTimeString("0:00.00", "08:30.0"),
 }
 
+def arrInStr(string: str, array: list):
+	for test_string in array:
+		if test_string in string:
+			return True
+	return False
+
 def translateTiming(string):
 	if "b" in string:
 		return f"Перерыв {string[1]}"
@@ -71,24 +77,24 @@ def getCurrentLessonTiming():
 def to_inlinekb(kb):
 	return json.dumps({"keyboard": kb})
 
-print("[MAIN] Загрузка пользователей")
+print("[MAIN] Загрузка пользователей...")
 # load users
-try:
-	file = json.loads(open("user_data.json", "r").read())
-	for user, api in file.items():
+file = json.loads(open("user_data.json", "r").read())
+for user, api in file.items():
+	try:
 		users[user] = Bukep_API(api[0], api[1])
-		print(f"[MAIN] Пользователь {user} загружен и залогинен...")
-except MaxRetryError:
-	print(f"[MAIN] Connection timeout on {user}")
-except Exception as e:
-	print(f"[MAIN] Error while loading users: {e}")
+		print(f"[MAIN]\t {user} - OK")
+	except MaxRetryError:
+		print(f"[MAIN]\t {user} - TIMEOUT")
+	except Exception as e:
+		print(f"[MAIN]\t {user} - ERROR {e}")
 
 print("[MAIN] Загрузка оповещаемых пользователей")
 # load alerts
 file = json.loads(open("alert_list.json", "r").read())
 for user, uid in file.items():
 	alert_list[user] = uid
-	print(f"[MAIN] Пользователь {user} восстановлен в список оповещения")
+	print(f"[MAIN]\t {user} - OK")
 
 def save_alerts():
 	file = open("alert_list.json", "w")
@@ -125,6 +131,9 @@ def convert_to_message(list_lessonDay):
 	return magicString
 
 def parse_message(message):
+	'''
+		TODO: переделать систему навигации по боту с этого непонятно чего на state-машину
+	'''
 	if message.user[1]: return
 	_channel = message.channel
 	_content = message.content.lower()
@@ -222,10 +231,11 @@ def parse_message(message):
 			tgapi.sendMessageOnChannel(_channel, "Укажите номер письма, которое хотите прочитать!")
 			magicString = ""
 			for i in range(len(user_mail[_userid])):
-				magicString += f"{i+1}. `{user_mail[_userid][i].theme}` от `{user_mail[_userid][i].sender}`\n\n"
+				magicString += f"{i+1}. `{user_mail[_userid][i].theme}`\nот `{user_mail[_userid][i].sender}`\n``` Показать содержимое письма {i+1}``` \n\n"
 			magicString += "Добавьте к этой команде номер письма, и я достану его содержимое\nПример: Показать содержимое письма 3"
 			tgapi.sendMessageOnChannel(_channel, magicString, useMarkdown=True) 
 		else:
+			# вот это вообще ужас, не догадался что неудобно пипец
 			if not args[3].isnumeric():
 				tgapi.sendMessageOnChannel(_channel, "Неверно указан номер письма!")
 				return
@@ -244,18 +254,48 @@ def parse_message(message):
 	stupidCommands = ["сегодняшний день", "завтрашний день", "текущую неделю", "следующую неделю"]
 	for i in range(len(stupidCommands)):
 		if stupidCommands[i] in _content:
+			msg_id = tgapi.sendMessageOnChannel(_channel, "Сравниваем день...", returnMessageID=True)
+
 			if i == 0 and datetime.datetime.now().weekday() == 6:
-				tgapi.sendMessageOnChannel(_channel, "Сегодня воскресенье, пар нет!")
+				tgapi.editMessage(_channel, msg_id, "Сегодня воскресенье, пар нет!")
 				break
+
+			tgapi.editMessage(_channel, msg_id, "Получаем расписание...")
 			schedule_id = users[_userid].get_first_schedule()
 			lessons = users[_userid].get_lessons_html_for_dateid(schedule_id, i)
-			data = users[_userid].parse_lessons(lessons)
-			if not data:
-				tgapi.sendMessageOnChannel(_channel, "Ошибка в работе сайта, попробуйте позже...")
-			tgapi.sendMessageOnChannel(_channel, convert_to_message(data), useMarkdown=True)
+			hasErrors = arrInStr(lessons, ["Bad Gateway","Bad Request", "Invalid URL"])
+
+			if not hasErrors:
+				tgapi.editMessage(_channel, msg_id, "Понимаем расписание...")
+				data = users[_userid].parse_lessons(lessons)
+			else:
+				retries = 1
+				while hasErrors:
+					# obviously, nothing we can do here, so abort
+					if retries > 3:
+						tgapi.editMessage(_channel, msg_id, f"Ошибка в работе сайта!")
+						return
+
+					retries += 1
+					tgapi.editMessage(_channel, msg_id, f"Получаем расписание... (попытка {retries})")
+					schedule_id = users[_userid].get_first_schedule()
+					lessons = users[_userid].get_lessons_html_for_dateid(schedule_id, i)
+					hasErrors = arrInStr(lessons, ["Bad Gateway", "Bad Request", "Invalid URL"])
+
+					# "Bad Gateway" is not our fault, but still let's try again
+					if not hasErrors:
+						tgapi.editMessage(_channel, msg_id, f"Понимаем расписание... (попытка {retries})")
+						data = users[_userid].parse_lessons(lessons)
+					else:
+						tgapi.editMessage(_channel, msg_id, "Возможно ошибка в работе бота, пробуем еще раз через 5 секунд...")
+						data = None
+						time.sleep(5)
+						continue
+			tgapi.editMessage(_channel, msg_id, convert_to_message(data), useMarkdown=True)
+				
 
 def update_cookies():
-	print("[MAIN] Cookie updates: every 5 minutes, no checking")
+	print("[MAIN] Обновление куки: каждые 5 минут")
 	lastUpdate = TimeSecondsSpan.getCurrentSeconds();
 	while running:
 		if TimeSecondsSpan.getCurrentSeconds() - lastUpdate > 600:
@@ -273,14 +313,14 @@ def alert_users_thread():
 	print("[MAIN] Оповещение о звонках: проверка каждые 5 секунд")
 	while running:
 		if TimeSecondsSpan.getCurrentSeconds() - lastUpdate > 5:
+			lastUpdate = TimeSecondsSpan.getCurrentSeconds();
 			timeName = getCurrentLessonTiming()
 			if not timeName:
 				continue
 			if timeName != last_alert:
 				for user, chatid in alert_list.items():
-					tgapi.sendMessageOnChannel(chatid, f"Звонок! Сейчас {translateTiming(timeName).lower()}")		
-			last_alert = timeName
-			lastUpdate = TimeSecondsSpan.getCurrentSeconds();
+					tgapi.sendMessageOnChannel(chatid, f"Звонок! Сейчас {translateTiming(timeName).lower()}")
+			last_alert = timeName		
 		time.sleep(1)
 
 running = True
