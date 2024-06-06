@@ -111,7 +111,7 @@ class Bukep_API:
 
 
 	def parse_email(self, page=1):
-		raw_data = requests.get("https://my.bukep.ru/MailBukep/Incoming?PageNumber="+str(page), cookies=self.cookie, verify=False, allow_redirects=False).text
+		raw_data = requests.get("https://my.bukep.ru/MailBukep/Incoming?page="+str(page), cookies=self.cookie, verify=False, allow_redirects=False).text
 		mail_table_start = raw_data.find('<table class="table table-bordered table-hover table-striped small">')
 		mail_table_end = raw_data[mail_table_start:].rfind('</table>')
 		rd_1 = raw_data[mail_table_start:mail_table_end+mail_table_start]
@@ -119,10 +119,10 @@ class Bukep_API:
 		mails = []
 		for m in r_mails:
 			# id
-			mail_id = m[m.find("Incoming/")+9:m.find("?PageNumber=1&")]
+			mail_id = m[m.find("Incoming/")+9:m.find(f"?PageNumber={page}&")]
 			if not mail_id.isnumeric():
 				continue
-			m = m[m.find("?PageNumber=1&"):]
+			m = m[m.find(f"?PageNumber={page}&"):]
 			# sender
 			snd_i1 = m.find('<span style="font-size: small">')
 			snd_i2 = m[snd_i1:].find("</span>")
@@ -145,7 +145,7 @@ class Bukep_API:
 		return mails
 
 	def get_mail_content_by_id(self, mailid):
-		link = "https://my.bukep.ru/MailBukep/Incoming/" + str(mailid) + "?PageNumber=1&isDetail=False"
+		link = "https://my.bukep.ru/MailBukep/Incoming/" + str(mailid) + "?page=1&isDetail=False"
 		html = requests.get(link, cookies=self.cookie, verify=False, allow_redirects=False).text
 		cnt_id1 = html.rfind('<span style="border: none; white-space: pre-wrap;">')+51
 		cnt_id2 = html[cnt_id1:].find('</span>')
