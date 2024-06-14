@@ -1,5 +1,7 @@
+import re
+
 from bukepAPI import Bukep_API
-from telegramAPI import TelegramPyAPI
+from telegramAPI import TelegramPyAPI, Message
 from timeSecond import TimeSecondsSpan, formTime
 import json, time, threading, sys, datetime
 from urllib3.exceptions import MaxRetryError
@@ -51,13 +53,28 @@ lesson_timing = {
 	"s": TimeSecondsSpan.FromTimeString("0:00.00", "08:30.0"),
 }
 
-def arrInStr(string: str, array: list):
+def arrInStr(string: str, array: list) -> bool:
+	'''
+		Возвращает True если хоть один из элементов есть в данной строке
+	'''
 	for test_string in array:
 		if test_string in string:
 			return True
 	return False
 
-def translateTiming(string):
+def arrInStrIndexed(string: str, array: list) -> int:
+	'''
+		Возвращает индекс элемента массива, если он есть в данной строке
+	'''
+	for i in range(len(array)):
+		if array[i] in string:
+			return i
+	return -1
+
+def translateTiming(string) -> str:
+	'''
+		Преобразует сжатый формат оповещения в понятный
+	'''
 	if "b" in string:
 		return f"Перерыв {string[1]}"
 	if "p" in string:
@@ -74,15 +91,15 @@ def getCurrentLessonTiming():
 		if value.inSpan(currentSeconds):
 			return item
 
-def to_inlinekb(kb):
+def to_inlinekb(kb) -> str:
 	return json.dumps({"keyboard": kb})
 
 print("[MAIN] Загрузка пользователей...")
 # load users
 file = json.loads(open("user_data.json", "r").read())
-for user, api in file.items():
+for user, data in file.items():
 	try:
-		users[user] = Bukep_API(api[0], api[1])
+		users[user] = {"api": Bukep_API(data[0], data[1]), "state": data[3]}
 		print(f"[MAIN]\t {user} - OK")
 	except MaxRetryError:
 		print(f"[MAIN]\t {user} - TIMEOUT")
@@ -96,29 +113,39 @@ for user, uid in file.items():
 	alert_list[user] = uid
 	print(f"[MAIN]\t {user} - OK")
 
-def save_alerts():
+def save_alerts() -> None:
 	file = open("alert_list.json", "w")
 	file.write(json.dumps(alert_list))
 	file.close()
 
-def save_user():
+def save_user() -> None:
 	file = open("user_data.json", "w")
 	endData = {}
-	for user, api in users.items():
-		endData[user] = [api.login, api.password]
+	for user, data in users.items():
+		endData[user] = [data["api"].login, data["api"].password, data["state"]]
 	file.write(json.dumps(endData))
 	file.close()
 
-def compareEmails(newEmails, userid):
+def compareEmails(newEmails, userid) -> bool:
+	'''
+	Сравнивает ID сообщений у новой почты и старой почты
+	'''
 	new_ids = [i.mailID for i in newEmails]
 	old_ids = [i.mailID for i in user_mail[userid]]
 	return new_ids != old_ids
 
-base_menu = to_inlinekb([["Расписания", "Почта"],["Сколько до звонка?", "Переключить оповещение о звонке"]])
-lesson_getter_menu = to_inlinekb([["На сегодняшний день", "На завтрашний день"], ["На текущую неделю", "На следующую неделю"], ["На главную"]])
-email_menu = to_inlinekb([["Обновить почту", "Показать ящик"],["Показать содержимое письма"], ["На главную"]])
-
-def convert_to_message(list_lessonDay):
+base_menu = to_inlinekb(
+	[["Расписания", "Почта"],["Сколько до звонка?", "Переключить оповещение о звонке"]])
+lesson_getter_menu = to_inlinekb(
+	[["На сегодняшний день", "На завтрашний день"], ["На текущую неделю", "На следующую неделю"], ["На главную"]])
+email_menu = to_inlinekb(
+	[["Обновить почту", "Показать ящик"],["Показать содержимое письма"], ["На главную"]])
+kbs = {
+	"main": [base_menu, "Возвращаемся на главную..."],
+	"lesson": [lesson_getter_menu, "Открываем расписания..."],
+	"mail": [email_menu, "Открываем почту..."]
+}
+def convert_to_message(list_lessonDay) -> str:
 	last_date = ""
 	magicString = ""
 	for lessonDay in list_lessonDay:
@@ -130,169 +157,159 @@ def convert_to_message(list_lessonDay):
 			magicString += f"\t`{lessonDay.lessons.index(lesson)+1}. {lesson.name} [кабинет {lesson.room}]\n\tПреподаватель: {lesson.lesson_teacher}`\n"
 	return magicString
 
-def parse_message(message):
-	'''
-		TODO: переделать систему навигации по боту с этого непонятно чего на state-машину
-	'''
+def parse_message(message: Message):
 	if message.user[1]: return
-	_channel = message.channel
-	_content = message.content.lower()
-	_userid = message.user[0]
-
-	if _content == "/start":
-		if _userid in users: 
-			tgapi.sendKeyboard(_channel, "Вы уже вошли в систему!", base_menu)
-			return
-		tgapi.sendMessageOnChannel(_channel, "Введите логин и пароль в таком формате: 'войти логин:пароль'\nПример: 'войти 123456:qwerty'")
-		return
-	elif "войти" in _content:
-		if _userid in users: 
-			tgapi.sendKeyboard(_channel, "Вы уже вошли в систему!", base_menu)
-			return
-		try:
-			login, password = _content.split(" ")[1].split(":")
-			print(login, password)
-		except Exception:
-			tgapi.sendMessageOnChannel(_channel, "Что-то пошло не так, проверьте введенные данные")
-			return
-		# try to log in
-		bapi = Bukep_API(login, password)
-		# check if cant get to any sites
-		res = bapi.get_first_schedule()
-		if not res:
-			tgapi.sendMessageOnChannel(_channel, "Что-то не так, не могу зайти в систему, проверьте введенные данные")
-			return
-		# ok we're good save this bad boy
-		users[message.user[0]] = bapi
-		save_user()
-		tgapi.sendKeyboard(_channel, "Вы успешно вошли!", base_menu)
-		return
-
-	if "до звонка" in _content:
-		timeName = getCurrentLessonTiming()
-		untilEndText = lesson_timing[timeName].untilEnd(TimeSecondsSpan.getCurrentSeconds()).toDatetime()
-		magicString = translateTiming(timeName) + "\nОсталось " + untilEndText.strftime("%H ч. %M мин. %S сек.")
-		tgapi.sendMessageOnChannel(_channel, magicString)
-		return
-
-	if _userid not in users: return
-
-	if "на главную" in _content:
-		tgapi.sendKeyboard(_channel, "Домой!", base_menu)
-		return
-
-	if "расписания" in _content:
-		# send kb
-		tgapi.sendKeyboard(_channel, "Что смотрим?", lesson_getter_menu)
-		return
-
-	if "почта" in _content:
-		tgapi.sendKeyboard(_channel, "Смотрим почту?", email_menu)
-
-	if "переключить" in _content:
-		# add to alert list, if already added remove
-		username = message.user[0]
-		if username in alert_list:
-			del alert_list[username]
-			tgapi.sendMessageOnChannel(_channel, "Удалил из списка оповещений!")
+	_channel: str = message.channel
+	_content: str = message.content.lower()
+	_userid: str = message.user[0]
+	_isRegistered: bool = _userid in users
+	def sendMessage(message: str, useMarkdown: bool=False, silent: bool=False, returnMessageID: bool=False):
+		return tgapi.sendMessageOnChannel(_channel, message, useMarkdown, silent, returnMessageID)
+	def sendKeyboard(msg: str, kb: list, silent: bool=False):
+		return tgapi.sendKeyboard(_channel, msg, kb, silent)
+	def setUserState(state):
+		users[_userid]["state"] = state
+	def setUserState_Alert(state):
+		setUserState(state)
+		sendKeyboard(kbs[state][1], kbs[state][0], silent)
+	# if not registered, do the login procedure
+	if _userid not in users:
+		if _content == "/start":
+			if _isRegistered:
+				sendKeyboard("Возвращаемся на главную...", base_menu)
+			else:
+				sendMessage("Введите логин и пароль таким образом: 'войти *логин*:*пароль*'", useMarkdown=True)
 		else:
-			alert_list[username] = _channel
-			tgapi.sendMessageOnChannel(_channel, "Добавил в список оповещения!")
-		save_alerts()
+			match = re.match(r"логин ([a-zA-Z0-9]*):([a-zA-Z0-9]*)")
+			if match:
+				login, passwd = match.groups()
+				sendMessage("Проверяю...")
+				newUser = Bukep_API(login, passwd)
+				if not newUser.get_first_schedule():
+					sendMessage("Не могу получить данные, проверьте логин/пароль")
+				else:
+					sendMessage("Вы успешно вошли!")
+					users[_userid] = {"api": newUser, "state": "main"}
+					save_user()
+			else:
+				sendMessage("Неправильно введены данные, попробуйте заново")
+		return
 
-	if "обновить" in _content:
-		tgapi.sendMessageOnChannel(_channel, "Обновляю ящик...")
-		newEmails = users[_userid].parse_email()
-		alerts = False
-		if _userid in user_mail:
-			if user_mail[_userid] != newEmails:
-				alerts = compareEmails(newEmails, _userid)
-		user_mail[_userid] = newEmails
-		tgapi.sendMessageOnChannel(_channel, "Обновление успешно!" + (" У вас новые сообщения!" if alerts else "") + "\nВыберите \"Показать ящик\" чтоб увидеть сообщения в почте")
+	_userstate = users[_userid]["state"]
+	_userapi = users[_userid]["api"]
+	'''
+		states:
+			- main
+			- lessons
+			- mail
+				- select
+				- TODO: write
+				- TODO: readall
+	'''
+	if "main" in _userstate:
+		if "расписания" in _content:
+			sendKeyboardByState_Alert("lessons")
+		elif "почта" in _content:
+			sendKeyboardByState_Alert("mail")
 
-	if "ящик" in _content:
-		if (_userid not in user_mail) or (not len(user_mail[_userid])):
-			tgapi.sendMessageOnChannel(_channel, "У вас нет сообщений или вы еще не обновили их! Выберите \"Обновить почту\" и возвращайтесь!")
-			return
-		magicString = ""
-		for mail in user_mail[_userid]:
-			magicString += "Письмо от: `" + mail.sender + "`,\nТема: `" + mail.theme + "`\n"
-			magicString += "Дата: `" + formTime(mail.date) + "`\n\n"
-		magicString += "Чтоб прочитать содержимое, выберите \"Показать содержимое письма\"!"
-		tgapi.sendMessageOnChannel(_channel, magicString, useMarkdown=True)
+		elif "сколько" in _content:
+			timeString = (
+				lesson_timing[getCurrentLessonTiming()]
+				.untilEnd(TimeSecondsSpan.getCurrentSeconds())
+				.toDatetime()
+			)
+			sendMessage(
+				translateTiming(getCurrentLessonTiming())
+				+ f"\nОсталось {timeString.strftime('%H ч. %M мин. %S сек.')}"
+			)
 
-	if "содержимое" in _content:
-		if (_userid not in user_mail) or (not len(user_mail[_userid])):
-			tgapi.sendMessageOnChannel(_channel, "У вас нет сообщений или вы еще не обновили их! Выберите \"Обновить почту\" и возвращайтесь!")
-			return
-		args = _content.split(" ")
-		if len(args) != 4:
-			# no mail id supplied, ask for it
-			tgapi.sendMessageOnChannel(_channel, "Укажите номер письма, которое хотите прочитать!")
+		elif "переключить" in _content:
+			if _userid not in alert_list:
+				alert_list[_userid] = _channel
+				sendKeyboard("Добавил в список оповещения!")
+			else:
+				del alert_list[_userid]
+				sendKeyboard("Убрал из списка оповещения!")
+
+	elif "lessons" in _userstate:
+		possible_lesson = ["сегодняшний", "завтрашний", "текущую", "следующую"]
+		if arrInStr(_content, possible_lesson):
+			# TODO: почему я до сих пор не объеденил получение расписания в одну функцию?
+			schedule = _userapi.get_first_schedule()
+			raw_lessons = _userapi.get_lessons_html_for_dateid(
+				schedule,
+				arrInStrIndexed(_content, possible_lesson)
+			)
+			lessons = _userapi.parse_lessons(raw_lessons)
+			data = convert_to_message(lessons)
+			sendMessage(data, useMarkdown=True)
+
+		elif "главную" in _content:
+			setUserState_Alert("main")
+
+	elif "mail" in _userstate:
+		if ".select" in _userstate:
+			if _content.isnumeric():
+				mailindex = int(_content) - 1
+				if 0 < mailindex < len(user_mail[_userid]):
+					sendMessage("Такого письма нет, отмена...")
+					setUserState("mail")
+					return
+				mail = user_mail[_userid][mailindex]
+				content = _userapi.get_mail_content_by_id(mail.mailID)
+				sendMessage(f"Письмо от {mail.sender}, дата: {mail.date}\nТема: {mail.theme}\n{content}")
+				setUserState("mail")
+
+		if "обновить" in _content:
+			sendMessage("Обновляю почту...")
+			#TODO: и тут тоже, сделай всё в одной функции в Bukep_API...
+			newMail = _userapi.parse_email()
+			alerts = False
+			if _userid in user_mail:
+				if user_mail[_userid] != newMail:
+					alerts = compareEmails(newMail, _userid)
+			user_mail[_userid] = newMail
+			sendMessage(
+				"Обновление успешно!" +
+				(" У вас новые сообщения!" if alerts else "") +
+				"\nВыберите \"Показать почту\" для просмотра"
+			)
+
+		elif "ящик" in _content:
+			if (_userid not in user_mail) or (not len(user_mail[_userid])):
+				sendMessage(
+					"Нет сообщений в ящике или вы не обновили их! " +
+					"Выберите \"Обновить почту\" и возвращайтесь"
+				)
+				return
+
+			magicString = ""
+			for mail in user_mail[_userid]:
+				magicString += (
+					"Письмо от: `" + mail.sender + "`\n" +
+					"Тема: `" + mail.theme + "`\n" +
+					"Дата: `" + formTime(mail.date) + "`\n\n"
+				)
+			magicString += "Выберите \"Показать содержимое письма\" для просмотра содержимого!"
+			sendMessage(magicString, useMarkdown=True)
+
+		elif "содержимое" in _content:
+			if (_userid not in user_mail) or (not len(user_mail[_userid])):
+				sendMessage(
+					"Нет сообщений в ящике или вы не обновили их! " +
+					"Выберите \"Обновить почту\" и возвращайтесь"
+				)
+				return
+
+			setUserState("mail.select")
 			magicString = ""
 			for i in range(len(user_mail[_userid])):
-				magicString += f"{i+1}. `{user_mail[_userid][i].theme}`\nот `{user_mail[_userid][i].sender}`\n``` Показать содержимое письма {i+1}``` \n\n"
-			magicString += "Добавьте к этой команде номер письма, и я достану его содержимое\nПример: Показать содержимое письма 3"
-			tgapi.sendMessageOnChannel(_channel, magicString, useMarkdown=True) 
-		else:
-			# вот это вообще ужас, не догадался что неудобно пипец
-			if not args[3].isnumeric():
-				tgapi.sendMessageOnChannel(_channel, "Неверно указан номер письма!")
-				return
-			mail_index = int(args[3])
-			if (mail_index > len(user_mail[_userid])) or (mail_index < 1): 
-				tgapi.sendMessageOnChannel(_channel, "Такого письма нет!")
-				return
-			mail_index -= 1
-			# mail id supplied, get message content
-			tgapi.sendMessageOnChannel(_channel, "Достаю содержимое письма...")
-			mail = user_mail[_userid][mail_index]
-			content = users[_userid].get_mail_content_by_id(mail.mailID)
-			magicString = f"Письмо от `{mail.sender}`, дата: {formTime(mail.date)}, тема: `{mail.theme}\n\"{content}\"`"
-			tgapi.sendMessageOnChannel(_channel, magicString, useMarkdown=True)
+				mail = user_mail[_userid][i]
+				magicString += f"{i+1}. `{mail.theme}`\nот `{mail.sender}`\n\n"
+			magicString += "Введите номер письма для отображения содержимого:"
+			sendMessage(magicString, useMarkdown=True)
 
-	stupidCommands = ["сегодняшний день", "завтрашний день", "текущую неделю", "следующую неделю"]
-	for i in range(len(stupidCommands)):
-		if stupidCommands[i] in _content:
-			msg_id = tgapi.sendMessageOnChannel(_channel, "Сравниваем день...", returnMessageID=True)
 
-			if i == 0 and datetime.datetime.now().weekday() == 6:
-				tgapi.editMessage(_channel, msg_id, "Сегодня воскресенье, пар нет!")
-				break
-
-			tgapi.editMessage(_channel, msg_id, "Получаем расписание...")
-			schedule_id = users[_userid].get_first_schedule()
-			lessons = users[_userid].get_lessons_html_for_dateid(schedule_id, i)
-			hasErrors = arrInStr(lessons, ["Bad Gateway","Bad Request", "Invalid URL"])
-
-			if not hasErrors:
-				tgapi.editMessage(_channel, msg_id, "Понимаем расписание...")
-				data = users[_userid].parse_lessons(lessons)
-			else:
-				retries = 1
-				while hasErrors:
-					# obviously, nothing we can do here, so abort
-					if retries > 3:
-						tgapi.editMessage(_channel, msg_id, f"Ошибка в работе сайта!")
-						return
-
-					retries += 1
-					tgapi.editMessage(_channel, msg_id, f"Получаем расписание... (попытка {retries})")
-					schedule_id = users[_userid].get_first_schedule()
-					lessons = users[_userid].get_lessons_html_for_dateid(schedule_id, i)
-					hasErrors = arrInStr(lessons, ["Bad Gateway", "Bad Request", "Invalid URL"])
-
-					# "Bad Gateway" is not our fault, but still let's try again
-					if not hasErrors:
-						tgapi.editMessage(_channel, msg_id, f"Понимаем расписание... (попытка {retries})")
-						data = users[_userid].parse_lessons(lessons)
-					else:
-						tgapi.editMessage(_channel, msg_id, "Возможно ошибка в работе бота, пробуем еще раз через 5 секунд...")
-						data = None
-						time.sleep(5)
-						continue
-			tgapi.editMessage(_channel, msg_id, convert_to_message(data), useMarkdown=True)
-				
 
 def update_cookies():
 	print("[MAIN] Обновление куки: каждые 5 минут")

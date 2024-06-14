@@ -3,7 +3,7 @@ import requests
 import json
 
 class Message():
-	def __init__(self,message,user,isBot,channel,messageType):
+	def __init__(self, message, user, isBot, channel, messageType):
 		self.content = message
 		self.user = [user,isBot]
 		self.channel = channel
@@ -72,8 +72,8 @@ class TelegramPyAPI():
 		return {"text":name,"callback_data":cb}
 
 	@staticmethod
-	def generateInlineKB(buttons,callbacks):
-		pass
+	def generateInlineKB(buttons: list):
+		return {"inline_keyboard": buttons}
 
 	@staticmethod
 	def CButton(name):
@@ -181,8 +181,24 @@ class TelegramPyAPI():
 		return res['ok']
 
 	def sendKeyboard(self, channel, string, kb, silent=False):
-		res = self.pollCommandAdvanced("sendMessage", args={"chat_id":channel,"text":string,"reply_markup":kb, "disable_notification": silent})
-		if(not res["ok"]):
+		res = self.pollCommandAdvanced("sendMessage", args={
+			"chat_id": channel,
+			"text": string,
+			"reply_markup": kb,
+			"disable_notification": silent
+		})
+		if not res["ok"]:
+			print(res)
+		return res["ok"]
+
+	def removeKeyboard(self, channel: str, string: str, silent: bool=False):
+		res = self.pollCommandAdvanced("sendMessage", args={
+			"chat_id": channel,
+			"text": string,
+			"reply_markup": {"remove_keyboard": True},
+			"disable_notification": silent
+		})
+		if not res["ok"]:
 			print(res)
 		return res["ok"]
 

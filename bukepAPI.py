@@ -35,6 +35,7 @@ class Bukep_API:
 		self.login = login
 		self.password = password
 		self.lpdata = {"login": self.login, "password": self.password}
+		self.cookie = None
 		self.logIn()
 
 	def logIn(self):
@@ -42,10 +43,8 @@ class Bukep_API:
 		Логинимся испольуя логин/пароль что дал нам пользователь, обычно не вызывается снаружи
 		'''
 		rq = requests.post("https://my.bukep.ru/Login/Login", data=self.lpdata, verify=False, allow_redirects=False, timeout=10)
-		if(rq.status_code != 302):
+		if rq.status_code != 302:
 			print("[bukepAPI] ERROR login for", self.login, "status:", rq.status_code)
-		# else:
-		# 	print("[bukepAPI] Login for", self.login, "status:",rq.status_code)
 		self.cookie = rq.cookies.get_dict()
 
 	def get_first_schedule(self):
@@ -62,20 +61,23 @@ class Bukep_API:
 
 	def get_lessons_html_for_dateid(self, schedule_id, date_id):
 		'''
-		Возвращает HTML сайта расписания пар по данному ID даты
+			Возвращает HTML сайта расписания пар по данному ID даты
 
-		БУКЭП имеет API в разработке, так что ждем его, а пока парсим все с HTML
-		А ну да, чтоб получить расписание нужно подать одну из этих цифер
-		0 - расписание на сегодня
-		1 - на завтра
-		2 - на текущуюю неделю
-		3 - на следующую неделю
-		4 - полное расписание на неделю
+			БУКЭП имеет API в разработке, так что ждем его, а пока парсим все с HTML
+			А ну да, чтоб получить расписание нужно подать одну из этих цифер
+			0 - расписание на сегодня
+			1 - на завтра
+			2 - на текущуюю неделю
+			3 - на следующую неделю
+			4 - полное расписание на неделю
 		'''
 		rq = requests.post("https://my.bukep.ru/Schedule/Schedule/" + schedule_id, cookies=self.cookie, data={"ddlConfig": int(date_id)}, verify=False)
 		return rq.text
 
 	def parse_lessons(self, raw_data):
+		'''
+			Парсит сырой html в удобный массив данных
+		'''
 		raw_data = raw_data.strip()
 		lessons_start = raw_data.find('<div class="row-rasp raspDayDiv">')
 		raw_data = raw_data[lessons_start+33:].split('<div class="row-rasp raspDayDiv">')
@@ -111,7 +113,10 @@ class Bukep_API:
 
 
 	def parse_email(self, page=1):
-		raw_data = requests.get("https://my.bukep.ru/MailBukep/Incoming?page="+str(page), cookies=self.cookie, verify=False, allow_redirects=False).text
+		raw_data = requests.get("https://my.bukep.ru/MailBukep/Incoming?page="+str(page),
+								cookies=self.cookie,
+								verify=False,
+								allow_redirects=False).text
 		mail_table_start = raw_data.find('<table class="table table-bordered table-hover table-striped small">')
 		mail_table_end = raw_data[mail_table_start:].rfind('</table>')
 		rd_1 = raw_data[mail_table_start:mail_table_end+mail_table_start]
