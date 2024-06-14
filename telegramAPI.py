@@ -180,23 +180,25 @@ class TelegramPyAPI():
 
 		return res['ok']
 
-	def sendKeyboard(self, channel, string, kb, silent=False):
+	def sendKeyboard(self, channel, string, kb, silent=False, useMarkdown: bool=False):
 		res = self.pollCommandAdvanced("sendMessage", args={
 			"chat_id": channel,
-			"text": string,
+			"text": self.text_sanitization(string) if useMarkdown else string,
 			"reply_markup": kb,
-			"disable_notification": silent
+			"disable_notification": silent,
+			"parse_mode": "MarkdownV2" if useMarkdown else ""
 		})
 		if not res["ok"]:
 			print(res)
 		return res["ok"]
 
-	def removeKeyboard(self, channel: str, string: str, silent: bool=False):
+	def removeKeyboard(self, channel: str, string: str, silent: bool=False, useMarkdown: bool=False):
 		res = self.pollCommandAdvanced("sendMessage", args={
 			"chat_id": channel,
-			"text": string,
-			"reply_markup": {"remove_keyboard": True},
-			"disable_notification": silent
+			"text": self.text_sanitization(string) if useMarkdown else string,
+			"reply_markup": json.dumps({"remove_keyboard": True}),
+			"disable_notification": silent,
+			"parse_mode": "MarkdownV2" if useMarkdown else ""
 		})
 		if not res["ok"]:
 			print(res)

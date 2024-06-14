@@ -94,25 +94,6 @@ def getCurrentLessonTiming():
 def to_inlinekb(kb) -> str:
 	return json.dumps({"keyboard": kb})
 
-print("[MAIN] Загрузка пользователей...")
-# load users
-file = json.loads(open("user_data.json", "r").read())
-for user, data in file.items():
-	try:
-		users[user] = {"api": Bukep_API(data[0], data[1]), "state": data[3]}
-		print(f"[MAIN]\t {user} - OK")
-	except MaxRetryError:
-		print(f"[MAIN]\t {user} - TIMEOUT")
-	except Exception as e:
-		print(f"[MAIN]\t {user} - ERROR {e}")
-
-print("[MAIN] Загрузка оповещаемых пользователей")
-# load alerts
-file = json.loads(open("alert_list.json", "r").read())
-for user, uid in file.items():
-	alert_list[user] = uid
-	print(f"[MAIN]\t {user} - OK")
-
 def save_alerts() -> None:
 	file = open("alert_list.json", "w")
 	file.write(json.dumps(alert_list))
@@ -134,6 +115,25 @@ def compareEmails(newEmails, userid) -> bool:
 	old_ids = [i.mailID for i in user_mail[userid]]
 	return new_ids != old_ids
 
+print("[MAIN] Загрузка пользователей...")
+# load users
+file = json.loads(open("user_data.json", "r").read())
+for user, data in file.items():
+	try:
+		users[user] = {"api": Bukep_API(data[0], data[1]), "state": data[2]}
+		print(f"[MAIN]\t {user} - OK")
+	except MaxRetryError:
+		print(f"[MAIN]\t {user} - TIMEOUT")
+	except Exception as e:
+		print(f"[MAIN]\t {user} - ERROR {e}")
+
+print("[MAIN] Загрузка оповещаемых пользователей")
+# load alerts
+file = json.loads(open("alert_list.json", "r").read())
+for user, uid in file.items():
+	alert_list[user] = uid
+	print(f"[MAIN]\t {user} - OK")
+
 base_menu = to_inlinekb(
 	[["Расписания", "Почта"],["Сколько до звонка?", "Переключить оповещение о звонке"]])
 lesson_getter_menu = to_inlinekb(
@@ -142,7 +142,7 @@ email_menu = to_inlinekb(
 	[["Обновить почту", "Показать ящик"],["Показать содержимое письма"], ["На главную"]])
 kbs = {
 	"main": [base_menu, "Возвращаемся на главную..."],
-	"lesson": [lesson_getter_menu, "Открываем расписания..."],
+	"lessons": [lesson_getter_menu, "Открываем расписания..."],
 	"mail": [email_menu, "Открываем почту..."]
 }
 def convert_to_message(list_lessonDay) -> str:
@@ -165,13 +165,15 @@ def parse_message(message: Message):
 	_isRegistered: bool = _userid in users
 	def sendMessage(message: str, useMarkdown: bool=False, silent: bool=False, returnMessageID: bool=False):
 		return tgapi.sendMessageOnChannel(_channel, message, useMarkdown, silent, returnMessageID)
-	def sendKeyboard(msg: str, kb: list, silent: bool=False):
-		return tgapi.sendKeyboard(_channel, msg, kb, silent)
+	def sendKeyboard(msg: str, kb: list, silent: bool=False, useMarkdown: bool=False):
+		return tgapi.sendKeyboard(_channel, msg, kb, silent, useMarkdown)
 	def setUserState(state):
 		users[_userid]["state"] = state
-	def setUserState_Alert(state):
+	def setUserState_Alert(state, silent: bool=False):
 		setUserState(state)
 		sendKeyboard(kbs[state][1], kbs[state][0], silent)
+	def editMessage(msg_id: int, msg: str, useMarkdown: bool=False):
+		return tgapi.editMessage(_channel, msg_id, msg, useMarkdown)
 	# if not registered, do the login procedure
 	if _userid not in users:
 		if _content == "/start":
@@ -208,9 +210,9 @@ def parse_message(message: Message):
 	'''
 	if "main" in _userstate:
 		if "расписания" in _content:
-			sendKeyboardByState_Alert("lessons")
+			setUserState_Alert("lessons")
 		elif "почта" in _content:
-			sendKeyboardByState_Alert("mail")
+			setUserState_Alert("mail")
 
 		elif "сколько" in _content:
 			timeString = (
@@ -226,23 +228,38 @@ def parse_message(message: Message):
 		elif "переключить" in _content:
 			if _userid not in alert_list:
 				alert_list[_userid] = _channel
-				sendKeyboard("Добавил в список оповещения!")
+				sendMessage("Добавил в список оповещения!")
 			else:
 				del alert_list[_userid]
-				sendKeyboard("Убрал из списка оповещения!")
+				sendMessage("Убрал из списка оповещения!")
+			save_alerts()
 
 	elif "lessons" in _userstate:
 		possible_lesson = ["сегодняшний", "завтрашний", "текущую", "следующую"]
 		if arrInStr(_content, possible_lesson):
+			msg_id = sendMessage("Понимаем день...", returnMessageID=True)
+			if "сегодня" in _content:
+				if datetime.datetime.now().weekday() == 6:
+					sendMessage("На этот день выходной!")
+					return
+			if "завтра" in _content:
+				if datetime.datetime.now().weekday() + 1 >= 6:
+					sendMessage("На этот день выходной!")
+					return
+			editMessage(msg_id, "Получаем расписание...")
 			# TODO: почему я до сих пор не объеденил получение расписания в одну функцию?
 			schedule = _userapi.get_first_schedule()
 			raw_lessons = _userapi.get_lessons_html_for_dateid(
 				schedule,
 				arrInStrIndexed(_content, possible_lesson)
 			)
+			editMessage(msg_id, "Понимаем расписание...")
 			lessons = _userapi.parse_lessons(raw_lessons)
 			data = convert_to_message(lessons)
-			sendMessage(data, useMarkdown=True)
+			if "<meta" in data:
+				editMessage(msg_id, "На этот день расписания нет!")
+				return
+			editMessage(msg_id, data, useMarkdown=True)
 
 		elif "главную" in _content:
 			setUserState_Alert("main")
@@ -251,17 +268,20 @@ def parse_message(message: Message):
 		if ".select" in _userstate:
 			if _content.isnumeric():
 				mailindex = int(_content) - 1
-				if 0 < mailindex < len(user_mail[_userid]):
+				if not -1 < mailindex < len(user_mail[_userid]):
 					sendMessage("Такого письма нет, отмена...")
 					setUserState("mail")
 					return
 				mail = user_mail[_userid][mailindex]
 				content = _userapi.get_mail_content_by_id(mail.mailID)
-				sendMessage(f"Письмо от {mail.sender}, дата: {mail.date}\nТема: {mail.theme}\n{content}")
+				sendKeyboard(
+					f"Письмо от `{mail.sender}`, дата: `{formTime(mail.date)}`\nТема: `{mail.theme}`\n\n`{content}`",
+					useMarkdown=True, kb=email_menu
+				)
 				setUserState("mail")
 
 		if "обновить" in _content:
-			sendMessage("Обновляю почту...")
+			msg_id = sendMessage("Обновляю почту...", returnMessageID=True)
 			#TODO: и тут тоже, сделай всё в одной функции в Bukep_API...
 			newMail = _userapi.parse_email()
 			alerts = False
@@ -269,7 +289,7 @@ def parse_message(message: Message):
 				if user_mail[_userid] != newMail:
 					alerts = compareEmails(newMail, _userid)
 			user_mail[_userid] = newMail
-			sendMessage(
+			editMessage(msg_id,
 				"Обновление успешно!" +
 				(" У вас новые сообщения!" if alerts else "") +
 				"\nВыберите \"Показать почту\" для просмотра"
@@ -307,9 +327,11 @@ def parse_message(message: Message):
 				mail = user_mail[_userid][i]
 				magicString += f"{i+1}. `{mail.theme}`\nот `{mail.sender}`\n\n"
 			magicString += "Введите номер письма для отображения содержимого:"
-			sendMessage(magicString, useMarkdown=True)
+			tgapi.removeKeyboard(_channel, magicString, useMarkdown=True);
 
-
+		elif "главную" in _content:
+			setUserState_Alert("main")
+	save_user()
 
 def update_cookies():
 	print("[MAIN] Обновление куки: каждые 5 минут")

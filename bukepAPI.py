@@ -150,7 +150,7 @@ class Bukep_API:
 		return mails
 
 	def get_mail_content_by_id(self, mailid):
-		link = "https://my.bukep.ru/MailBukep/Incoming/" + str(mailid) + "?page=1&isDetail=False"
+		link = "https://my.bukep.ru/MailBukep/Incoming/" + str(mailid) + "?PageNumber=1&isDetail=False"
 		html = requests.get(link, cookies=self.cookie, verify=False, allow_redirects=False).text
 		cnt_id1 = html.rfind('<span style="border: none; white-space: pre-wrap;">')+51
 		cnt_id2 = html[cnt_id1:].find('</span>')
