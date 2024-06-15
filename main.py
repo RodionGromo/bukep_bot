@@ -272,7 +272,6 @@ def parse_message(message: Message):
 
 		if "обновить" in _content:
 			msg_id = sendMessage("Обновляю почту...", returnMessageID=True)
-			#TODO: и тут тоже, сделай всё в одной функции в Bukep_API...
 			if _userid in user_mail:
 				user_mail[_userid], alerts = _userapi.refreshMail(user_mail[_userid])
 			else:
