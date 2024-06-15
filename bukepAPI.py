@@ -74,9 +74,10 @@ class Bukep_API:
 		rq = requests.post("https://my.bukep.ru/Schedule/Schedule/" + schedule_id, cookies=self.cookie, data={"ddlConfig": int(date_id)}, verify=False)
 		return rq.text
 
-	def parse_lessons(self, raw_data):
+	@staticmethod
+	def parse_lessons(raw_data):
 		'''
-			Парсит сырой html в удобный массив данных
+			Парсит сырой html расписания в удобный массив данных
 		'''
 		raw_data = raw_data.strip()
 		lessons_start = raw_data.find('<div class="row-rasp raspDayDiv">')
@@ -111,8 +112,10 @@ class Bukep_API:
 			lessonday_list.append(LessonDay(date_1, lessons))
 		return lessonday_list
 
-
-	def parse_email(self, page=1):
+	def get_email(self, page=1):
+		'''
+			Получает список писем и сортирует их в список
+		'''
 		raw_data = requests.get("https://my.bukep.ru/MailBukep/Incoming?page="+str(page),
 								cookies=self.cookie,
 								verify=False,
@@ -149,10 +152,44 @@ class Bukep_API:
 			mails.append(Mail(sender, theme, date, mail_id))
 		return mails
 
-	def get_mail_content_by_id(self, mailid):
+	def get_mail_content_by_id(self, mailid: int):
+		'''
+			Достает содержимое письма по его ID
+		'''
 		link = "https://my.bukep.ru/MailBukep/Incoming/" + str(mailid) + "?PageNumber=1&isDetail=False"
 		html = requests.get(link, cookies=self.cookie, verify=False, allow_redirects=False).text
 		cnt_id1 = html.rfind('<span style="border: none; white-space: pre-wrap;">')+51
 		cnt_id2 = html[cnt_id1:].find('</span>')
 		raw_content = html[cnt_id1:cnt_id2+cnt_id1].replace("\r", "")
 		return raw_content
+
+	def getSchedule(self, schedule_time_id: int):
+		'''
+			Быстрый вариант получения расписания, требует только индекс расписания
+			Достает только из первого расписания в списке расписаний
+		'''
+		schedule = self.get_first_schedule()
+		data = self.get_lessons_html_for_dateid(schedule, schedule_time_id)
+		return Bukep_API.parse_lessons(data)
+
+	@staticmethod
+	def compareEmails(newEmails: list, oldEmails: list) -> bool:
+		'''
+			Сравнивает ID сообщений у новой почты и старой почты
+		'''
+		new_ids = [i.mailID for i in newEmails]
+		old_ids = [i.mailID for i in oldEmails]
+		return new_ids != old_ids
+	def refreshMail(self, old_mail: list) -> (list, bool):
+		'''
+			Обновляет почту (достает новую и сравнивает с старой)
+		'''
+		mail = self.get_email()
+		alert = False
+		if mail != old_mail:
+			try:
+				alert = Bukep_API.compareEmails(mail, old_mail)
+			except Exception:
+				pass
+		return (mail, alert)
+

@@ -107,14 +107,6 @@ def save_user() -> None:
 	file.write(json.dumps(endData))
 	file.close()
 
-def compareEmails(newEmails, userid) -> bool:
-	'''
-	Сравнивает ID сообщений у новой почты и старой почты
-	'''
-	new_ids = [i.mailID for i in newEmails]
-	old_ids = [i.mailID for i in user_mail[userid]]
-	return new_ids != old_ids
-
 print("[MAIN] Загрузка пользователей...")
 # load users
 file = json.loads(open("user_data.json", "r").read())
@@ -237,6 +229,7 @@ def parse_message(message: Message):
 	elif "lessons" in _userstate:
 		possible_lesson = ["сегодняшний", "завтрашний", "текущую", "следующую"]
 		if arrInStr(_content, possible_lesson):
+
 			msg_id = sendMessage("Понимаем день...", returnMessageID=True)
 			if "сегодня" in _content:
 				if datetime.datetime.now().weekday() == 6:
@@ -246,16 +239,13 @@ def parse_message(message: Message):
 				if datetime.datetime.now().weekday() + 1 >= 6:
 					sendMessage("На этот день выходной!")
 					return
+
 			editMessage(msg_id, "Получаем расписание...")
-			# TODO: почему я до сих пор не объеденил получение расписания в одну функцию?
-			schedule = _userapi.get_first_schedule()
-			raw_lessons = _userapi.get_lessons_html_for_dateid(
-				schedule,
-				arrInStrIndexed(_content, possible_lesson)
-			)
+			lessons = _userapi.getSchedule(arrInStrIndexed(_content, possible_lesson))
+
 			editMessage(msg_id, "Понимаем расписание...")
-			lessons = _userapi.parse_lessons(raw_lessons)
 			data = convert_to_message(lessons)
+
 			if "<meta" in data:
 				editMessage(msg_id, "На этот день расписания нет!")
 				return
@@ -283,12 +273,10 @@ def parse_message(message: Message):
 		if "обновить" in _content:
 			msg_id = sendMessage("Обновляю почту...", returnMessageID=True)
 			#TODO: и тут тоже, сделай всё в одной функции в Bukep_API...
-			newMail = _userapi.parse_email()
-			alerts = False
 			if _userid in user_mail:
-				if user_mail[_userid] != newMail:
-					alerts = compareEmails(newMail, _userid)
-			user_mail[_userid] = newMail
+				user_mail[_userid], alerts = _userapi.refreshMail(user_mail[_userid])
+			else:
+				user_mail[_userid], alerts = _userapi.refreshMail([])
 			editMessage(msg_id,
 				"Обновление успешно!" +
 				(" У вас новые сообщения!" if alerts else "") +
@@ -338,11 +326,11 @@ def update_cookies():
 	lastUpdate = TimeSecondsSpan.getCurrentSeconds();
 	while running:
 		if TimeSecondsSpan.getCurrentSeconds() - lastUpdate > 600:
-			for user, api in users.items():
+			for user, data in users.items():
 				try:
-					api.logIn()
+					data["api"].logIn()
 				except Exception as e:
-					print(f"[MAIN] Update on user {user} failed: {e}")
+					print(f"[MAIN] Обновление куки у {user} неудачно: {e}")
 			lastUpdate = TimeSecondsSpan.getCurrentSeconds();
 		time.sleep(1)
 
