@@ -3,11 +3,12 @@ from urllib3.exceptions import InsecureRequestWarning
 requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
 class Lesson:
-	def __init__(self, lesson_name, lesson_type, lesson_teacher, room):
+	def __init__(self, lesson_position, lesson_name, lesson_type, lesson_teacher, room):
 		self.name = lesson_name
 		self.lesson_type = lesson_type
 		self.lesson_teacher = lesson_teacher
 		self.room = room
+		self.position = lesson_position
 
 	def __repr__(self):
 		return f"[Пара {self.name} в кабинете {self.room}, {self.lesson_type}, преподаватель {self.lesson_teacher}]"
@@ -75,6 +76,12 @@ class Bukep_API:
 		return rq.text
 
 	@staticmethod
+	def strip_lessondata(raw_data):
+		raw_data = raw_data.replace("\r", "")
+		res = raw_data.split("\n")
+		return [line.rstrip().strip().replace("                     ", "") for line in res if line != ""]
+
+	@staticmethod
 	def parse_lessons(raw_data):
 		'''
 			Парсит сырой html расписания в удобный массив данных
@@ -91,24 +98,31 @@ class Bukep_API:
 			str_date_end = data.find('</td>')
 			day_date = data[str_date_start+15:str_date_end]
 			del str_date_start, str_date_end
-			# достаем дату, а по ней уже будем день недели доставать
+			# достаем дату, а по ней уже будем день недели доставать 
+			# 03.09.24 - сменился стиль, фикс
 			raw_date_start = day_date.find('25px;">')
 			raw_date_end = day_date.rfind('</div>')
 			raw_date = day_date[raw_date_start+7:raw_date_end]
+			raw_date = raw_date.replace("</div>", "").replace('<div style="color: white; text-align:center; font-size: 15px;">', " ").replace("\n                     ", " ")
 			date_1 = raw_date
 			del raw_date_start, raw_date_end, day_date
 			# пары..
+			# 12.09.24 - поправил чтоб пары были по расписанию а не по индексу в массиве
 			lessons = []
-			for lesson in data.split('<div style="color:black;">'):
-				lesson_end = lesson.find("</td>")
-				lesson_data = lesson[:lesson_end].replace("\n                ", "")
-				if("raspDayTable" in lesson_data):
+			for lesson in data.split('<tr>'):
+				if "raspDayTable" in lesson:
 					continue
-				lesson_name = lesson_data[:lesson_data.find("</div>")]
-				lesson_type = lesson_data[lesson_data.find("</div><div>")+11:lesson_data.find(" <span")]
-				lesson_teacher = lesson_data[lesson_data.find("</div>    <div>")+15:lesson_data.find("</div>\n")].replace("</div>    <div>", "/")
-				lesson_room = lesson_data[lesson_data.find('black;">')+8:lesson_data.find("</span>")]
-				lessons.append(Lesson(lesson_name, lesson_type, lesson_teacher, lesson_room))
+				lesson_data = Bukep_API.strip_lessondata(lesson)
+				try:
+					lesson_name = lesson_data[11][26:-6].strip()
+					lesson_type = lesson_data[12].split("<span")[0][5:].strip()
+					lesson_teacher = lesson_data[13][5:-6].strip()
+					lesson_room = lesson_data[12].split('black;">')[1][:-13]
+					lesson_position = lesson_data[7][5:-12].strip()
+				except IndexError:
+					pass
+				else:
+					lessons.append(Lesson(lesson_position, lesson_name, lesson_type, lesson_teacher, lesson_room))
 			lessonday_list.append(LessonDay(date_1, lessons))
 		return lessonday_list
 
@@ -180,6 +194,7 @@ class Bukep_API:
 		new_ids = [i.mailID for i in newEmails]
 		old_ids = [i.mailID for i in oldEmails]
 		return new_ids != old_ids
+
 	def refreshMail(self, old_mail: list) -> (list, bool):
 		'''
 			Обновляет почту (достает новую и сравнивает с старой)
@@ -193,3 +208,7 @@ class Bukep_API:
 				pass
 		return (mail, alert)
 
+
+
+# test = Bukep_API("223024", "v461au")
+# print(test.getSchedule(1)[0].lessons[0])
