@@ -112,7 +112,7 @@ print("[MAIN] Загрузка пользователей...")
 file = json.loads(open("user_data.json", "r").read())
 for user, data in file.items():
 	try:
-		users[user] = {"api": Bukep_API(data[0], data[1]), "state": data[2], lastUse: datetime.datetime.now()}
+		users[user] = {"api": Bukep_API(data[0], data[1]), "state": data[2], "lastUse": datetime.datetime.now()}
 		print(f"[MAIN]\t {user} - OK")
 	except MaxRetryError:
 		print(f"[MAIN]\t {user} - TIMEOUT")
@@ -141,8 +141,8 @@ kbs = {
 def timedCookieRefresh(user):
 	if user not in users:
 		return
-	
-	if (datetime.datetime.now() - users[user]["lasUse"]).total_seconds() > 300:
+
+	if (datetime.datetime.now() - users[user]["lastUse"]).total_seconds() > 300:
 		users[user]["api"].logIn()
 
 def convert_to_message(list_lessonDay) -> str:

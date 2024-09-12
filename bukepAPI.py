@@ -208,7 +208,3 @@ class Bukep_API:
 				pass
 		return (mail, alert)
 
-
-
-# test = Bukep_API("223024", "v461au")
-# print(test.getSchedule(1)[0].lessons[0])
