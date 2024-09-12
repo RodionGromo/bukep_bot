@@ -112,7 +112,7 @@ print("[MAIN] Загрузка пользователей...")
 file = json.loads(open("user_data.json", "r").read())
 for user, data in file.items():
 	try:
-		users[user] = {"api": Bukep_API(data[0], data[1]), "state": data[2]}
+		users[user] = {"api": Bukep_API(data[0], data[1]), "state": data[2], lastUse: datetime.datetime.now()}
 		print(f"[MAIN]\t {user} - OK")
 	except MaxRetryError:
 		print(f"[MAIN]\t {user} - TIMEOUT")
@@ -137,6 +137,14 @@ kbs = {
 	"lessons": [lesson_getter_menu, "Открываем расписания..."],
 	"mail": [email_menu, "Открываем почту..."]
 }
+
+def timedCookieRefresh(user):
+	if user not in users:
+		return
+	
+	if (datetime.datetime.now() - users[user]["lasUse"]).total_seconds() > 300:
+		users[user]["api"].logIn()
+
 def convert_to_message(list_lessonDay) -> str:
 	last_date = ""
 	magicString = ""
@@ -146,7 +154,9 @@ def convert_to_message(list_lessonDay) -> str:
 		#magicString += f"\\-\\- Дата: Не доступно на данный момент \\-\\-\n"
 			last_date = lessonDay.date
 		for lesson in lessonDay.lessons:
-			magicString += f"\t`{lessonDay.lessons.index(lesson)+1}. {lesson.name} [кабинет {lesson.room}]\n\tПреподаватель: {lesson.lesson_teacher}`\n"
+			magicString += f"\t`{lesson.position}. {lesson.name} [кабинет {lesson.room}]\n\tПреподаватель: {lesson.lesson_teacher}`\n"
+	if "<HTML>" in magicString:
+		return "Ошибка bukepAPI, попросите разработчика перезагрузить..."
 	return magicString
 
 def parse_message(message: Message):
@@ -155,26 +165,33 @@ def parse_message(message: Message):
 	_content: str = message.content.lower()
 	_userid: str = message.user[0]
 	_isRegistered: bool = _userid in users
+
 	def sendMessage(message: str, useMarkdown: bool=False, silent: bool=False, returnMessageID: bool=False):
 		return tgapi.sendMessageOnChannel(_channel, message, useMarkdown, silent, returnMessageID)
+
 	def sendKeyboard(msg: str, kb: list, silent: bool=False, useMarkdown: bool=False):
 		return tgapi.sendKeyboard(_channel, msg, kb, silent, useMarkdown)
+
 	def setUserState(state):
 		users[_userid]["state"] = state
+
 	def setUserState_Alert(state, silent: bool=False):
 		setUserState(state)
 		sendKeyboard(kbs[state][1], kbs[state][0], silent)
+
 	def editMessage(msg_id: int, msg: str, useMarkdown: bool=False):
 		return tgapi.editMessage(_channel, msg_id, msg, useMarkdown)
+
 	# if not registered, do the login procedure
 	if _userid not in users:
 		if _content == "/start":
 			if _isRegistered:
 				sendKeyboard("Возвращаемся на главную...", base_menu)
 			else:
+				sendMessage("Добро пожаловать в бот личного кабинета MyBUKEP! Просьба при входе вводить только свои данные и следовать данному шаблону:")
 				sendMessage("Введите логин и пароль таким образом: 'войти *логин*:*пароль*'", useMarkdown=True)
 		else:
-			match = re.match(r"логин ([a-zA-Z0-9]*):([a-zA-Z0-9]*)")
+			match = re.match(r"войти ([a-zA-Z0-9]*):([a-zA-Z0-9]*)", _content)
 			if match:
 				login, passwd = match.groups()
 				sendMessage("Проверяю...")
@@ -240,10 +257,13 @@ def parse_message(message: Message):
 					sendMessage("На этот день выходной!")
 					return
 
+			editMessage(msg_id, "Обновляем куки, если необходимо...")
+			timedCookieRefresh(_userid)
+
 			editMessage(msg_id, "Получаем расписание...")
 			lessons = _userapi.getSchedule(arrInStrIndexed(_content, possible_lesson))
 
-			editMessage(msg_id, "Понимаем расписание...")
+			editMessage(msg_id, "Читаем расписание...")
 			data = convert_to_message(lessons)
 
 			if "<meta" in data:
@@ -272,6 +292,7 @@ def parse_message(message: Message):
 
 		if "обновить" in _content:
 			msg_id = sendMessage("Обновляю почту...", returnMessageID=True)
+			#TODO: и тут тоже, сделай всё в одной функции в Bukep_API...
 			if _userid in user_mail:
 				user_mail[_userid], alerts = _userapi.refreshMail(user_mail[_userid])
 			else:
@@ -320,18 +341,22 @@ def parse_message(message: Message):
 			setUserState_Alert("main")
 	save_user()
 
-def update_cookies():
-	print("[MAIN] Обновление куки: каждые 5 минут")
-	lastUpdate = TimeSecondsSpan.getCurrentSeconds();
-	while running:
-		if TimeSecondsSpan.getCurrentSeconds() - lastUpdate > 600:
-			for user, data in users.items():
-				try:
-					data["api"].logIn()
-				except Exception as e:
-					print(f"[MAIN] Обновление куки у {user} неудачно: {e}")
-			lastUpdate = TimeSecondsSpan.getCurrentSeconds();
-		time.sleep(1)
+'''
+	Есть шанс что эта фича может вызвать кулдаун на айпи, 
+	так что сейчас обновление куки будет по запросу
+'''
+# def update_cookies():
+# 	print("[MAIN] Обновление куки: каждые 5 минут")
+# 	lastUpdate = TimeSecondsSpan.getCurrentSeconds();
+# 	while running:
+# 		if TimeSecondsSpan.getCurrentSeconds() - lastUpdate > 600:
+# 			for user, data in users.items():
+# 				try:
+# 					data["api"].logIn()
+# 				except Exception as e:
+# 					print(f"[MAIN] Обновление куки у {user} неудачно: {e}")
+# 			lastUpdate = TimeSecondsSpan.getCurrentSeconds();
+# 		time.sleep(1)
 
 def alert_users_thread():
 	last_alert = ""
@@ -353,8 +378,8 @@ running = True
 
 thr_alert = threading.Thread(target=alert_users_thread)
 thr_alert.start()
-thr = threading.Thread(target=update_cookies)
-thr.start()
+# thr = threading.Thread(target=update_cookies)
+# thr.start()
 
 if __name__ == "__main__":
 	while running:
@@ -366,5 +391,5 @@ if __name__ == "__main__":
 		except KeyboardInterrupt:
 			print("[MAIN] Stopping bot...")
 			running = False
-		except Exception as e:
-			print("Error:", e)
+		#except Exception as e:
+			#print("Error:", e)
