@@ -118,7 +118,6 @@ for user, data in file.items():
 		print(f"[MAIN]\t {user} - TIMEOUT")
 	except Exception as e:
 		print(f"[MAIN]\t {user} - ERROR {e}")
-	break
 
 print("[MAIN] Загрузка оповещаемых пользователей")
 # load alerts
@@ -380,8 +379,8 @@ def alert_users_thread():
 
 running = True
 
-# thr_alert = threading.Thread(target=alert_users_thread)
-# thr_alert.start()
+thr_alert = threading.Thread(target=alert_users_thread)
+thr_alert.start()
 # thr = threading.Thread(target=update_cookies)
 # thr.start()
 
