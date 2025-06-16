@@ -118,6 +118,7 @@ for user, data in file.items():
 		print(f"[MAIN]\t {user} - TIMEOUT")
 	except Exception as e:
 		print(f"[MAIN]\t {user} - ERROR {e}")
+	break
 
 print("[MAIN] Загрузка оповещаемых пользователей")
 # load alerts
@@ -154,7 +155,12 @@ def convert_to_message(list_lessonDay) -> str:
 		#magicString += f"\\-\\- Дата: Не доступно на данный момент \\-\\-\n"
 			last_date = lessonDay.date
 		for lesson in lessonDay.lessons:
-			magicString += f"\t`{lesson.position}. {lesson.name} [кабинет {lesson.room}]\n\tПреподаватель: {lesson.lesson_teacher}`\n"
+			magicString += f"\t`{lesson.position}. {lesson.name} [кабинет {lesson.room}]\n\tПреподаватель: {lesson.lesson_teacher}"
+			if "экзамен" in lesson.lesson_type.lower():
+				magicString += "\n > " + lesson.lesson_type + "`\n"
+			else:
+				magicString += "`\n"
+
 	if "<HTML>" in magicString:
 		return "Ошибка bukepAPI, попросите разработчика перезагрузить..."
 	return magicString
@@ -182,29 +188,27 @@ def parse_message(message: Message):
 	def editMessage(msg_id: int, msg: str, useMarkdown: bool=False):
 		return tgapi.editMessage(_channel, msg_id, msg, useMarkdown)
 
-	# if not registered, do the login procedure
-	if _userid not in users:
-		if _content == "/start":
-			if _isRegistered:
-				sendKeyboard("Возвращаемся на главную...", base_menu)
-			else:
-				sendMessage("Добро пожаловать в бот личного кабинета MyBUKEP! Просьба при входе вводить только свои данные и следовать данному шаблону:")
-				sendMessage("Введите логин и пароль таким образом: 'войти *логин*:*пароль*'", useMarkdown=True)
+	if _content == "/start":
+		if _isRegistered:
+			sendKeyboard("Возвращаемся на главную...", base_menu)
 		else:
-			match = re.match(r"войти ([a-zA-Z0-9]*):([a-zA-Z0-9]*)", _content)
-			if match:
-				login, passwd = match.groups()
-				sendMessage("Проверяю...")
-				newUser = Bukep_API(login, passwd)
-				if not newUser.get_first_schedule():
-					sendMessage("Не могу получить данные, проверьте логин/пароль")
-				else:
-					sendMessage("Вы успешно вошли!")
-					users[_userid] = {"api": newUser, "state": "main"}
-					save_user()
+			sendMessage("Добро пожаловать в бот личного кабинета MyBUKEP! Просьба при входе вводить только свои данные и следовать данному шаблону:")
+			sendMessage("Введите логин и пароль таким образом: 'войти *логин*:*пароль*'", useMarkdown=True)
+
+	if "войти" in _content:
+		match = re.match(r"войти ([a-zA-Z0-9]*):([a-zA-Z0-9]*)", _content)
+		if match:
+			login, passwd = match.groups()
+			sendMessage("Проверяю...")
+			newUser = Bukep_API(login, passwd)
+			if not newUser.get_first_schedule():
+				sendMessage("Не могу получить данные, проверьте логин/пароль")
 			else:
-				sendMessage("Неправильно введены данные, попробуйте заново")
-		return
+				sendKeyboard("Вы успешно вошли!", base_menu)
+				users[_userid] = {"api": newUser, "state": "main"}
+				save_user()
+		else:
+			sendMessage("Неправильно введены данные, попробуйте заново")
 
 	_userstate = users[_userid]["state"]
 	_userapi = users[_userid]["api"]
@@ -376,8 +380,8 @@ def alert_users_thread():
 
 running = True
 
-thr_alert = threading.Thread(target=alert_users_thread)
-thr_alert.start()
+# thr_alert = threading.Thread(target=alert_users_thread)
+# thr_alert.start()
 # thr = threading.Thread(target=update_cookies)
 # thr.start()
 
@@ -391,5 +395,5 @@ if __name__ == "__main__":
 		except KeyboardInterrupt:
 			print("[MAIN] Stopping bot...")
 			running = False
-		#except Exception as e:
-			#print("Error:", e)
+		except Exception as e:
+			print("Error:", e)

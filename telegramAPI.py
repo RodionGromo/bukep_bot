@@ -83,7 +83,9 @@ class TelegramPyAPI():
 		return json.loads(requests.get(self._base + command).content)
 
 	def pollCommandAdvanced(self,command,args):
-		return json.loads(requests.get(self._base + command,params=args).content)
+		res = requests.get(self._base + command,params=args,timeout=35)
+		#print(res.url)
+		return json.loads(res.content)
 
 	def saveUpdInt(self):
 		file = open("./botData.json","w")
@@ -96,6 +98,9 @@ class TelegramPyAPI():
 			res = self.pollCommandAdvanced("getUpdates",{"timeout":30,"offset":self._lastUpdateInt + 1})
 		else:
 			res = self.pollCommandAdvanced("getUpdates",{"timeout":30})
+		if "result" not in res:
+			print(res)
+			raise Exception("error on getting message")
 		if(len(res["result"]) > 0):
 			self._lastUpdateInt = res["result"][len(res["result"])-1]["update_id"]
 			self.saveUpdInt()
